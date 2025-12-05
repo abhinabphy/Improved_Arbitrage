@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use core::panic;
 use std::collections::{HashMap, HashSet};
+use crate::executor::execute_arbitrage;
 
 /// -------------------------------
 /// Data Models
@@ -64,10 +65,10 @@ pub fn construct_network(pools: &Vec<Pool>) -> Network {
     
 
     for p in pools {
-//         if p.token0.id == "0x0000000000000000000000000000000000000000"
-//     || p.token1.id == "0x0000000000000000000000000000000000000000" {
-//     continue;
-// }
+        if p.token0.id == "0x0000000000000000000000000000000000000000"
+    || p.token1.id == "0x0000000000000000000000000000000000000000" {
+    continue;
+}
         let sqrt_price_x96 = match p.sqrt_price.parse::<f64>() {
             Ok(v) => v,
             Err(_) => continue,

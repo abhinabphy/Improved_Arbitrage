@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Uniswap Network Visualization</title>
+  <script src="https://unpkg.com/cytoscape@3.26.0/dist/cytoscape.min.js"></script>
+  <style>
+    body { margin: 0; background: #111; }
+    #cy { width: 100vw; height: 100vh; display: block; }
+  </style>
+</head>
+<body>
+  <div id="cy"></div>
+  <script>
+    fetch('network.json')
+      .then(res => res.json())
+      .then(data => {
+        const cy = cytoscape({
+          container: document.getElementById('cy'),
+          elements: [
+            ...data.nodes.map(n => ({ data: { id: n.id, label: n.label } })),
+            ...data.edges.map(e => ({ data: { id: e.id, source: e.source, target: e.target } }))
+          ],
+          style: [
+            { selector: 'node', style: { 'background-color': '#00d8ff', 'label': 'data(label)', 'font-size': 6, 'color': '#fff' }},
+            { selector: 'edge', style: { 'width': 0.5, 'line-color': '#555' }}
+          ],
+          layout: { name: 'cose', padding: 20, animate: false }
+        });
+      });
+  </script>
+</body>
+</html>

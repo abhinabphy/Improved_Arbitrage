@@ -1,0 +1,21 @@
+[submodule "flashswaps_executor/lib/forge-std"]
+	path = flashswaps_executor/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std
+[submodule "flashswaps_executor/lib/openzeppelin-contracts"]
+	path = flashswaps_executor/lib/openzeppelin-contracts
+	url = https://github.com/OpenZeppelin/openzeppelin-contracts
+[submodule "flashswaps_executor/lib/v3-core"]
+	path = flashswaps_executor/lib/v3-core
+	url = https://github.com/uniswap/v3-core
+[submodule "flashswaps_executor/lib/v3-periphery"]
+	path = flashswaps_executor/lib/v3-periphery
+	url = https://github.com/uniswap/v3-periphery
+[submodule "flashswaps_executor/lib/v2-core"]
+	path = flashswaps_executor/lib/v2-core
+	url = https://github.com/uniswap/v2-core
+[submodule "flashswaps_executor/lib/aave-v3-core"]
+	path = flashswaps_executor/lib/aave-v3-core
+	url = https://github.com/aave/aave-v3-core
+[submodule "flashswaps_executor/lib/v2-periphery"]
+	path = flashswaps_executor/lib/v2-periphery
+	url = https://github.com/uniswap/v2-periphery

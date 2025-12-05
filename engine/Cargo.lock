@@ -3,6 +3,18 @@
 version = 4
 
 [[package]]
+name = "ArbEngine"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "itertools",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "addr2line"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -200,18 +212,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75030f3c4f45dafd7586dd6780965a8c7e8e285a5ecb86713e63a79c5b2766f3"
 dependencies = [
  "cfg-if",
-]
-
-[[package]]
-name = "engine"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "itertools",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
 ]
 
 [[package]]
