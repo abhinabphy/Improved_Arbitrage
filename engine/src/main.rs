@@ -3,122 +3,144 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs::File;
 use std::io::Write;
- mod engine;
- mod executor;
+
+mod engine;
+mod executor;
+
 use ArbEngine::engine::{Pool, Token, construct_network, find_arbitrage};
 use ArbEngine::executor::execute_arbitrage;
 
+/// -------------------------------
+/// GraphQL response models
+/// -------------------------------
+#[derive(Debug, Deserialize)]
+struct GraphQLResponse<T> {
+    data: Option<T>,
+    #[serde(default)]
+    errors: Option<Vec<GraphQLError>>,
+}
 
 #[derive(Debug, Deserialize)]
-struct GraphQLResponse {
-    data: Data,
+struct GraphQLError {
+    message: String,
+    #[serde(default)]
+    locations: Option<Vec<GraphQLErrorLocation>>,
+    #[serde(default)]
+    path: Option<Vec<serde_json::Value>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GraphQLErrorLocation {
+    line: u32,
+    column: u32,
 }
 
 #[derive(Debug, Deserialize)]
 struct Data {
+    #[serde(rename = "pairs")]
     pools: Vec<Pool>,
 }
 
-// #[derive(Debug, Deserialize)]
-// struct Pool {
-//     id: String,
-//     token0: Token,
-//     token1: Token,
-//     #[serde(rename = "feeTier")]
-//     fee_tier: String,
-//     #[serde(rename = "totalValueLockedUSD")]
-//     total_value_locked_usd: String,
-//     tick: String,
-//     #[serde(rename = "sqrtPrice")]
-//     sqrt_price: String,
-// }
-
-// #[derive(Debug, Deserialize)]
-// struct Token {
-//     symbol: String,
-//     name: String,
-//     id: String,
-// }
-
 fn construct_graph_ofpools(pools: Vec<Pool>) {
-
-    
-    // Placeholder for graph construction logic
     println!("Constructing graph with {} pools", pools.len());
 }
 
-fn export_network_json(tokens: &Vec<Token>, pools: &Vec<Pool>) -> std::io::Result<()> {
-    let nodes: Vec<_> = tokens.iter()
-        .map(|t| json!({"id": t.id, "label": t.symbol}))
-        .collect();
-    let edges: Vec<_> = pools.iter()
-        .map(|p| json!({"source": p.token0.id, "target": p.token1.id, "id": p.id}))
-        .collect();
-
-    let graph_json = json!({ "nodes": nodes, "edges": edges });
-    let mut file = File::create("network.json")?;
-    file.write_all(graph_json.to_string().as_bytes())?;
-    Ok(())
-}
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let endpoint = "https://gateway.thegraph.com/api/subgraphs/id/DiYPVdygkfjDWhbxGSqAQxwBKmfKnkWQojqeM2rkLb3G";
-    
+    let endpoint = "https://gateway.thegraph.com/api/subgraphs/id/A3Np3RQbaBA6oKJgiwDJeo5T3zrYfGHPWFYayMwtNDum";
+
     let query = r#"
     {
-      pools(first: 500, orderBy: totalValueLockedUSD, orderDirection: desc) {
+      pairs(
+        first: 1000,
+        orderBy: reserveUSD,
+        orderDirection: desc,
+        where: {
+          token0_: { derivedETH_gt: 0 },
+          token1_: { derivedETH_gt: 0 }
+        }
+      ) {
         id
-        token0 { symbol name id decimals}
-        token1 { symbol name id decimals}
-        feeTier
-        totalValueLockedUSD
-        tick
-        sqrtPrice
+        reserveUSD
+        reserve0
+        reserve1
+        token0 {
+          id
+          symbol
+          name
+          derivedETH
+          decimals
+        }
+        token1 {
+          id
+          symbol
+          name
+          derivedETH
+          decimals
+        }
       }
     }
     "#;
 
     let client = reqwest::Client::new();
-    
-    let response = client
+
+    let http_resp = client
         .post(endpoint)
         .header("Authorization", "Bearer ad58cf9c17003146d9a16d553f5840d2")
-        .json(&json!({
-            "query": query
-        }))
+        .json(&json!({ "query": query }))
         .send()
         .await?;
 
-    let result: GraphQLResponse;
+    let status = http_resp.status();          // ✅ capture status before consuming
+    println!("Response Status: {}", status);
 
-    if response.status().is_success() {
-        result = response.json().await?;
-        println!("{:#?}", result.data.pools);
-    } else {
-        eprintln!("Error: {}", response.status());
-        eprintln!("Response: {}", response.text().await?);
-        return Err("Failed to fetch data".into());
+    let body = http_resp.text().await?;       // ✅ this now consumes http_resp
+
+    // For debugging:
+    // println!("Raw body: {}", body);
+
+    if !status.is_success() {
+        eprintln!("Non-200 response body: {}", body);
+        return Err("Failed to fetch data (non-success HTTP status)".into());
     }
-    
-    let network = construct_network(&result.data.pools);
-    // Export network to JSON for visualization
-    export_network_json(&result.data.pools.iter().map(|p| p.token0.clone()).chain(result.data.pools.iter().map(|p| p.token1.clone())).collect(), &result.data.pools)?;
-    println!("Constructed network with {} tokens and {} edges", network.tokens.len(), network.edges.len());
+
+    // Deserialize GraphQL-style response
+    let gql: GraphQLResponse<Data> = serde_json::from_str(&body)?;
+
+    if let Some(errors) = &gql.errors {
+        eprintln!("GraphQL returned errors:");
+        for err in errors {
+            eprintln!(" - {}", err.message);
+        }
+        return Err("GraphQL error; see logs".into());
+    }
+
+    let data = gql
+        .data
+        .ok_or_else(|| "GraphQL response had no `data` field".to_string())?;
+
+    println!("Fetched {} pools from subgraph", data.pools.len());
+
+    // -----------------------------
+    // Build network + find arb
+    // -----------------------------
+    let network = construct_network(&data.pools);
+
+    println!(
+        "Constructed network with {} tokens and {} edges",
+        network.tokens.len(),
+        network.edges.len()
+    );
+
     let arbitrages = find_arbitrage(&network, 0.0);
     println!("Found {} arbitrage opportunities", arbitrages.len());
+
     let cycles = arbitrages.clone();
     for arb in arbitrages {
-        //
-        //map the arbtrage opportunities with usdc as start token
-       if arb.start_token=="0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"|| arb.start_token=="0xC02aaA39b223FE8D0A0E5C4F27eAD9083C756Cc2" {
         println!("{:#?}", arb);
     }
-}
-    //exec
+
     execute_arbitrage(&cycles);
-
-
-
 
     Ok(())
 }
