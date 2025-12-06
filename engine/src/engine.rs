@@ -142,14 +142,14 @@ pub fn construct_network(pools: &Vec<Pool>) -> Network {
             continue;
         }
 
-        // Optional TVL filter if reserveUSD is present
-        if let Some(s) = &p.reserveUSD {
-            if let Ok(tvl) = s.parse::<f64>() {
-                if tvl < MIN_TVL_USD {
-                    continue;
-                }
-            }
-        }
+        // // Optional TVL filter if reserveUSD is present
+        // if let Some(s) = &p.reserveUSD {
+        //     if let Ok(tvl) = s.parse::<f64>() {
+        //         if tvl < MIN_TVL_USD {
+        //             continue;
+        //         }
+        //     }
+        // }
 
         // Uniswap V2 mid-price: token0 → token1
         // reserves are already in real token units, so no decimal adjustment.
