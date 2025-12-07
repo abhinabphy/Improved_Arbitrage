@@ -122,11 +122,11 @@ pub fn construct_network(pools: &Vec<Pool>) -> Network {
 
     for p in pools {
         // Skip zero-address garbage
-        if p.token0.id == "0x0000000000000000000000000000000000000000"
-            || p.token1.id == "0x0000000000000000000000000000000000000000"
-        {
-            continue;
-        }
+        // if p.token0.id == "0x0000000000000000000000000000000000000000"
+        //     || p.token1.id == "0x0000000000000000000000000000000000000000"
+        // {
+        //     continue;
+        // }
 
         // Parse reserves (already scaled from subgraph)
         let reserve0: f64 = match p.reserve0.parse() {

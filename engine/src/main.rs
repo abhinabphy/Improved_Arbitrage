@@ -1,8 +1,11 @@
 use reqwest;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::fmt::format;
 use std::fs::File;
 use std::io::Write;
+use dotenv::dotenv;
+use std::env;
 
 mod engine;
 mod executor;
@@ -52,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let query = r#"
     {
       pairs(
-        first: 1000,
+        first: 100,
         orderBy: reserveUSD,
         orderDirection: desc,
         where: {
@@ -83,21 +86,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     "#;
 
     let client = reqwest::Client::new();
+    dotenv().ok();
+    let api_key = env::var("GRAPH_API_KEY")?;
+    println!("{}", api_key);
 
     let http_resp = client
         .post(endpoint)
-        .header("Authorization", "Bearer ad58cf9c17003146d9a16d553f5840d2")
+        .header("Authorization",format!("Bearer {}", api_key))
         .json(&json!({ "query": query }))
         .send()
         .await?;
 
-    let status = http_resp.status();          // ✅ capture status before consuming
+    let status = http_resp.status();          
     println!("Response Status: {}", status);
 
-    let body = http_resp.text().await?;       // ✅ this now consumes http_resp
-
-    // For debugging:
-    // println!("Raw body: {}", body);
+    let body = http_resp.text().await?;      
 
     if !status.is_success() {
         eprintln!("Non-200 response body: {}", body);
