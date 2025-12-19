@@ -16,10 +16,10 @@ pub struct Pool {
     pub id: String,
     pub token0: Token,
     pub token1: Token,
-    pub reserve0: String,              // from subgraph: already scaled (not raw 1e18)
-    pub reserve1: String,              // from subgraph: already scaled
+    pub reserve0: String, // from subgraph: already scaled (not raw 1e18)
+    pub reserve1: String, // from subgraph: already scaled
     #[serde(default)]
-    pub reserveUSD: Option<String>,    // optional, if you add it to the query
+    pub reserveUSD: Option<String>, // optional, if you add it to the query
 }
 
 /// Directed edge between tokens (price-based)
@@ -43,9 +43,9 @@ pub struct Network {
 #[derive(Debug, Clone)]
 pub struct ArbitrageCycle {
     pub start_token: String,
-    pub path: Vec<String>,  // token IDs in cycle order
-    pub product: f64,       // ∏ rate along cycle
-    pub profit_pct: f64,    // (product - 1) * 100
+    pub path: Vec<String>, // token IDs in cycle order
+    pub product: f64,      // ∏ rate along cycle
+    pub profit_pct: f64,   // (product - 1) * 100
 }
 
 /// -------------------------------
@@ -62,13 +62,13 @@ struct IndexedEdge {
 
 #[derive(Debug, Clone)]
 struct IndexedNetwork<'a> {
-    tokens: &'a [String],           // index -> token id (borrow from Network)
-    edges: Vec<IndexedEdge>,        // integer indexed edges
-    adj: Vec<Vec<usize>>,           // adjacency: node -> list of edge indices
+    tokens: &'a [String],    // index -> token id (borrow from Network)
+    edges: Vec<IndexedEdge>, // integer indexed edges
+    adj: Vec<Vec<usize>>,    // adjacency: node -> list of edge indices
 }
 
 /// Build integer-index network from string-based Network
-fn index_network(network: &Network) -> IndexedNetwork<'_> {
+fn index_network(network: &Network) -> IndexedNetwork {
     let n = network.tokens.len();
     let mut token_to_idx = HashMap::<String, usize>::with_capacity(n);
     for (i, t) in network.tokens.iter().enumerate() {

@@ -1,15 +1,16 @@
+use dotenv::dotenv;
 use reqwest;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::env;
 use std::fmt::format;
 use std::fs::File;
 use std::io::Write;
-use dotenv::dotenv;
-use std::env;
 
 mod engine;
 mod executor;
 
+use ArbEngine::datafetcher::data_fetcher;
 use ArbEngine::engine::{Pool, Token, construct_network, find_arbitrage};
 use ArbEngine::executor::execute_arbitrage;
 
@@ -50,84 +51,87 @@ fn construct_graph_ofpools(pools: Vec<Pool>) {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let endpoint = "https://gateway.thegraph.com/api/subgraphs/id/A3Np3RQbaBA6oKJgiwDJeo5T3zrYfGHPWFYayMwtNDum";
+    // let endpoint = "https://gateway.thegraph.com/api/subgraphs/id/A3Np3RQbaBA6oKJgiwDJeo5T3zrYfGHPWFYayMwtNDum";
 
-    let query = r#"
-    {
-      pairs(
-        first: 100,
-        orderBy: reserveUSD,
-        orderDirection: desc,
-        where: {
-          token0_: { derivedETH_gt: 0 },
-          token1_: { derivedETH_gt: 0 }
-        }
-      ) {
-        id
-        reserveUSD
-        reserve0
-        reserve1
-        token0 {
-          id
-          symbol
-          name
-          derivedETH
-          decimals
-        }
-        token1 {
-          id
-          symbol
-          name
-          derivedETH
-          decimals
-        }
-      }
-    }
-    "#;
+    // let query = r#"
+    // {
+    //   pairs(
+    //     first: 100,
+    //     orderBy: reserveUSD,
+    //     orderDirection: desc,
+    //     where: {
+    //       token0_: { derivedETH_gt: 0 },
+    //       token1_: { derivedETH_gt: 0 }
+    //     }
+    //   ) {
+    //     id
+    //     reserveUSD
+    //     reserve0
+    //     reserve1
+    //     token0 {
+    //       id
+    //       symbol
+    //       name
+    //       derivedETH
+    //       decimals
+    //     }
+    //     token1 {
+    //       id
+    //       symbol
+    //       name
+    //       derivedETH
+    //       decimals
+    //     }
+    //   }
+    // }
+    // "#;
 
-    let client = reqwest::Client::new();
-    dotenv().ok();
-    let api_key = env::var("GRAPH_API_KEY")?;
-    println!("{}", api_key);
+    // let client = reqwest::Client::new();
+    // dotenv().ok();
+    // let api_key = env::var("GRAPH_API_KEY")?;
+    // println!("{}", api_key);
 
-    let http_resp = client
-        .post(endpoint)
-        .header("Authorization",format!("Bearer {}", api_key))
-        .json(&json!({ "query": query }))
-        .send()
-        .await?;
+    // let http_resp = client
+    //     .post(endpoint)
+    //     .header("Authorization",format!("Bearer {}", api_key))
+    //     .json(&json!({ "query": query }))
+    //     .send()
+    //     .await?;
 
-    let status = http_resp.status();          
-    println!("Response Status: {}", status);
+    // let status = http_resp.status();
+    // println!("Response Status: {}", status);
 
-    let body = http_resp.text().await?;      
+    // let body = http_resp.text().await?;
 
-    if !status.is_success() {
-        eprintln!("Non-200 response body: {}", body);
-        return Err("Failed to fetch data (non-success HTTP status)".into());
-    }
+    // if !status.is_success() {
+    //     eprintln!("Non-200 response body: {}", body);
+    //     return Err("Failed to fetch data (non-success HTTP status)".into());
+    // }
 
-    // Deserialize GraphQL-style response
-    let gql: GraphQLResponse<Data> = serde_json::from_str(&body)?;
+    // // Deserialize GraphQL-style response
+    // let gql: GraphQLResponse<Data> = serde_json::from_str(&body)?;
 
-    if let Some(errors) = &gql.errors {
-        eprintln!("GraphQL returned errors:");
-        for err in errors {
-            eprintln!(" - {}", err.message);
-        }
-        return Err("GraphQL error; see logs".into());
-    }
+    // if let Some(errors) = &gql.errors {
+    //     eprintln!("GraphQL returned errors:");
+    //     for err in errors {
+    //         eprintln!(" - {}", err.message);
+    //     }
+    //     return Err("GraphQL error; see logs".into());
+    // }
 
-    let data = gql
-        .data
-        .ok_or_else(|| "GraphQL response had no `data` field".to_string())?;
+    // let data = gql
+    //     .data
+    //     .ok_or_else(|| "GraphQL response had no `data` field".to_string())?;
 
-    println!("Fetched {} pools from subgraph", data.pools.len());
+    // println!("Fetched {} pools from subgraph", data.pools.len());
 
     // -----------------------------
     // Build network + find arb
     // -----------------------------
-    let network = construct_network(&data.pools);
+    // let network = construct_network(&data.pools);
+
+    let pools = data_fetcher().await?;
+    let network = construct_network(&pools);
 
     println!(
         "Constructed network with {} tokens and {} edges",
