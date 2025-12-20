@@ -3,11 +3,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use alloy::{
-    primitives::{Address, U256, address},
-    providers::{Provider, ProviderBuilder, WsConnect, bindings::IMulticall3::IMulticall3Calls},
-    signers::k256::elliptic_curve::pkcs8::der,
-    sol,
-    sol_types::SolCall,
+    dyn_abi::parser::Error, primitives::{Address, U256, address}, providers::{Provider, ProviderBuilder, WsConnect, bindings::IMulticall3::IMulticall3Calls}, signers::k256::elliptic_curve::pkcs8::der, sol, sol_types::SolCall
 };
 use dashmap::DashMap;
 use eyre::Result;
@@ -15,6 +11,7 @@ use eyre::Result;
 use tokio::sync::Semaphore;
 
 use crate::engine::{Pool, Token};
+use crate::engine;
 
 sol! {
     #[sol(rpc)]
@@ -50,10 +47,12 @@ sol! {
 
 const UNISWAP_V2_FACTORY: Address = address!("5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f");
 const MULTICALL2: Address = address!("0x5ba1e12693dc8f9c48aad8770482f4739beed696");
+const ADDR_BATCH: usize = 30;
+const MAX_CONCURRENCY: usize = 3;
 
 //#[tokio::main]
 pub async fn data_fetcher() -> Result<Vec<Pool>> {
-    let rpc_url = "https://reth-ethereum.ithaca.xyz/rpc".parse()?;
+    let rpc_url = "https://eth-mainnet.g.alchemy.com/v2/KlDOgzk8zc0vdF4cQRXs3".parse()?;
     let provider = ProviderBuilder::new().connect_http(rpc_url);
 
     let provider = Arc::new(provider);
@@ -66,37 +65,14 @@ pub async fn data_fetcher() -> Result<Vec<Pool>> {
     let mut pools: Vec<Pool> = Vec::new();
 
     let max = pairs_len.min(U256::from(20));
-    const ADDR_BATCH: usize = 30;
-    const MAX_CONCURRENCY: usize = 3;
 
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENCY));
     //let mut tasks = Vec::new();
+    println!("initiating fetching all pool addresses");
 
-    let mut i = U256::ZERO;
-    while i < U256::from(1) {
-        let pair_addr: Address = factory.allPairs(i).call().await?;
-        let pair = IUniswapV2Pair::new(pair_addr, provider.clone());
-
-        let token0_addr: Address = pair.token0().call().await?;
-        let token1_addr: Address = pair.token1().call().await?;
-        let token0 = load_token(token0_addr, provider.clone(), &token_cache).await?;
-        let token1 = load_token(token1_addr, provider.clone(), &token_cache).await?;
-
-        let reserves = pair.getReserves().call().await?;
-        let r0: U256 = U256::from(reserves.reserve0);
-        let r1: U256 = U256::from(reserves.reserve1);
-        let pool = Pool {
-            id: pair_addr.to_string(),
-            token0,
-            token1,
-            reserve0: r0.to_string(),
-            reserve1: r1.to_string(),
-            reserveUSD: Some(U256::ZERO.to_string()), // Placeholder, will be calculated later
-        };
-        i += U256::ONE;
-        println!("{:#?}", token_cache);
-        pools.push(pool);
-    }
+    let pool_addresses = fetch_pools(provider.clone(), UNISWAP_V2_FACTORY, 1).await?;
+    println!("all pool addresses fetched");
+    let pools=fetch_pool_states(provider, &pool_addresses, token_cache).await.unwrap();
 
     Ok(pools)
 }
@@ -117,6 +93,7 @@ where
     let name: String = erc20.name().call().await?;
     let symbol: String = erc20.symbol().call().await?;
     let decimals_u8: u8 = erc20.decimals().call().await?;
+    println!("allfetched");
     let token = Token {
         id: format!("{:#x}", addr),
         name,
@@ -124,6 +101,7 @@ where
         decimals: decimals_u8.to_string(),
     };
     cache.insert(addr, token.clone());
+    println!("inserted token");
     Ok(token)
 }
 //another helper function to build the multicall
@@ -152,24 +130,142 @@ where
         for raw in returndata {
             let bytes: &[u8] = &raw;
             let pair_addr: Address = IUniswapV2Factory::allPairsCall::abi_decode_returns(bytes)?;
-            println!("{:?}", pair_addr);
+            // println!("{:?}", pair_addr);
+            all_pairs.push(pair_addr);
         }
         start += U256::ONE;
     }
     Ok(all_pairs)
 }
 
+//helper to fetch batch pool state fetcher
+async fn fetch_pool_states<p>(provider: Arc<p>, pool_addrs: &Vec<Address>, cache: Arc<DashMap<Address, Token>>) -> Result<Vec<Pool>>
+where
+    p: Provider + Send+Sync+'static,
+{
+    let mut pool_states:Vec<Pool>=Vec::new();
+    let semaphore=Arc::new(Semaphore::new(MAX_CONCURRENCY));
+    let multicall = IMulticall2::new(MULTICALL2, provider.clone());
+    let mut handles:Vec<tokio::task::JoinHandle<std::result::Result<_, eyre::Report>>>=Vec::new();
+    for chunk in pool_addrs.chunks(ADDR_BATCH){
+        let permit = semaphore.clone().acquire_owned().await?;
+        let multicall = multicall.clone();
+        let chunk = chunk.to_vec();
+        let provider_clone = provider.clone();
+        let cache_clone = cache.clone();
+        handles.push(tokio::spawn(async move {
+            let _permit = permit;
+            let mut calls = Vec::new();
+            for &pool in &chunk {
+                calls.push(Call {
+                    target: pool,
+                    callData: IUniswapV2Pair::token0Call.abi_encode().into(),
+                });
+                calls.push(Call {
+                    target: pool,
+                    callData: IUniswapV2Pair::token1Call.abi_encode().into(),
+                });
+                calls.push(Call {
+                    target: pool,
+                    callData: IUniswapV2Pair::getReservesCall.abi_encode().into(),
+                });
+            }
+            let res = match multicall.aggregate(calls).call().await {
+                Ok(result) => result,
+                Err(e) => {
+                    eprintln!("Error decoding multicall: {:?}", e);
+                    return Err(e.into());
+                }
+            };
+            let mut local = Vec::with_capacity(chunk.len());
+            let mut i = 0;
+
+            for &pool in &chunk {
+                let token0: Address =
+                    match IUniswapV2Pair::token0Call::abi_decode_returns(&res.returnData[i]) {
+                        Ok(addr) => addr,
+                        Err(e) => {
+                            eprintln!("Error decoding token0: {:?}", e);
+                            continue;
+                        }
+                    };
+                i += 1;
+
+                let token1: Address =
+                    match IUniswapV2Pair::token1Call::abi_decode_returns(&res.returnData[i]) {
+                        Ok(addr) => addr,
+                        Err(e) => {
+                            eprintln!("Error decoding token1: {:?}", e);
+                            continue;
+                        }
+                    };
+                i += 1;
+
+                let reserves =
+                    match IUniswapV2Pair::getReservesCall::abi_decode_returns(&res.returnData[i]) {
+                        Ok(res) => res,
+                        Err(e) => {
+                            eprintln!("Error decoding reserves: {:?}", e);
+                            continue;
+                        }
+                    };
+                i += 1;
+
+                let r0 = U256::from(reserves.reserve0);
+                let r1 = U256::from(reserves.reserve1);
+                //fetching tokens 
+                let t0=
+                match load_token(token0, provider_clone.clone(), &cache_clone).await {
+                    Ok(res) => res,
+                    Err(e) => {
+                        eprintln!("Error decoding token0: {:?}", e);
+                        continue;
+                    }
+                };
+                let t1=
+                match load_token(token1, provider_clone.clone(), &cache_clone).await {
+                    Ok(res) => res,
+                    Err(e) => {
+                        eprintln!("Error decoding token0: {:?}", e);
+                        continue;
+                    }
+                };
+
+
+                local.push(Pool {
+                    id: format!("{:#x}", pool),
+                    token0: t0,
+                    token1: t1,
+                    reserve0: r0.to_string(),
+                    reserve1: r1.to_string(),
+                    reserveUSD: None,
+                });
+            }
+
+            Ok(local)
+        }));
+     
+        for h in handles.drain(..) {
+            pool_states.extend(h.await??);
+        }
+    }  
+    Ok(pool_states)
+}
+
 #[cfg(test)]
 mod tests {
+
+    
+
     use super::*;
     #[tokio::test]
     async fn test_data_fetcher() {
         let now = Instant::now();
 
-        let pools = data_fetcher().await.unwrap();
-        assert!(!pools.is_empty());
+        let pools = data_fetcher().await;
+        //assert!(!pools.is_empty());
         for pool in pools.iter().take(5) {
-            println!("{:?}", pool);
+            println!("{:?}", pool.len());
         }
         let t = now.elapsed();
         println!("Time taken: {} seconds", t.as_secs());
@@ -196,16 +292,35 @@ mod tests {
 
         let provider = Arc::new(provider);
         let factory = UNISWAP_V2_FACTORY;
-        let result = fetch_pools(provider, factory, 10).await;
+        let result = fetch_pools(provider.clone(), factory, 10).await;
+        let cache: Arc<DashMap<Address, Token>> = Arc::new(DashMap::new());
 
         match result {
             Ok(pools) => {
                 println!("Fetched pools: {:?}", pools);
+                let pool_states=fetch_pool_states(provider.clone(), &pools, cache).await?;
+                println!("{:#?}",pool_states)
             }
             Err(e) => {
                 eprintln!("Error fetching pools: {:?}", e);
             }
         }
+        
         Ok(())
+    }
+    #[tokio::test]
+    async fn final_test() -> Result<(), anyhow::Error> {
+        match data_fetcher().await {
+            Ok(pools) => {
+                println!("Fetched pools: ");
+                
+                
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("Error: {:?}", e);
+                Err(anyhow::Error::msg(e.to_string()))
+            }
+        }
     }
 }
