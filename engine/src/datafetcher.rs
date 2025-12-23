@@ -70,7 +70,7 @@ pub async fn data_fetcher() -> Result<Vec<Pool>> {
     //let mut tasks = Vec::new();
     println!("initiating fetching all pool addresses");
 
-    let pool_addresses = fetch_pools(provider.clone(), UNISWAP_V2_FACTORY, 1).await?;
+    let pool_addresses = fetch_pools(provider.clone(), UNISWAP_V2_FACTORY, 50).await?;
     println!("all pool addresses fetched");
     let pools=fetch_pool_states(provider, &pool_addresses, token_cache).await.unwrap();
 
@@ -123,6 +123,7 @@ where
     let mut all_pairs = Vec::new();
     let mut start = U256::ZERO;
     while start < count {
+        let batch_size = ADDR_BATCH.min(count - start.to::<usize>());
         let calls = build_all_pairs_calls(start, count, factory);
         let multicall = IMulticall2::new(MULTICALL2, provider.clone());
         let aggregate_result = multicall.aggregate(calls).call().await?;
@@ -133,7 +134,7 @@ where
             // println!("{:?}", pair_addr);
             all_pairs.push(pair_addr);
         }
-        start += U256::ONE;
+        start += U256::from(batch_size);
     }
     Ok(all_pairs)
 }
@@ -313,6 +314,7 @@ mod tests {
         match data_fetcher().await {
             Ok(pools) => {
                 println!("Fetched pools: ");
+                println!("{:#?}",pools);
                 
                 
                 Ok(())
